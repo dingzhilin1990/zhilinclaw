@@ -1,8 +1,12 @@
 # ZhiLinClaw
 
-本地优先的开源 AI助手框架 - Local-First AI Assistant Framework
+这是AI开发的一个给鸿蒙OS用的本地化openclaw，本地优先的开源 AI助手框架 - Local-First AI Assistant Framework
 
 基于 ArkTS 语言实现，参考 OpenClaw、IronClaw和汉武帝架构理念设计。
+
+汉武帝架构是让AI分析中国历史上各个朝代效率优的架构体系得出的产物，参考了SOP工作流引擎，尽可能多的实现多AI高效协同。
+
+让AI创造更多可能！
 
 ## 核心理念
 
