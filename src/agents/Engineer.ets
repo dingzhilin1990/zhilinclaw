@@ -18,12 +18,16 @@ const engineerConfig: AgentConfig = {
   layer: AgentLayer.EXECUTION,
   triggerKeywords: ['编码', '构建', '开发', '实现', '编程', 'code', 'build', 'develop'],
   maxIterations: 20,
-  enableLogging: true
+  enableLogging: true,
+  systemPrompt: `你是一位资深软件工程师。你的职责是：
+1. 理解需求并设计技术方案
+2. 编写高质量、可维护的代码
+3. 确保代码符合最佳实践和安全标准
+4. 编写必要的测试用例
+
+请输出结构化的代码和技术文档。`
 };
 
-/**
- * 工程师类
- */
 export class Engineer extends AgentBase {
   constructor() {
     super(engineerConfig);
@@ -40,17 +44,22 @@ export class Engineer extends AgentBase {
     try {
       this.log('开始实现功能...');
 
-      // 1. 理解需求
-      const requirement = await this.analyzeRequirement(input);
+      const devPrompt = `请根据以下需求实现功能：
+
+需求描述：${input}
+
+请输出：
+1. 技术设计（架构、模块划分、接口设计）
+2. 代码实现（完整的可运行代码）
+3. 测试用例（至少3个测试场景）
+4. 使用说明`;
+
+      const aiResponse = await this.callAI(devPrompt);
       
-      // 2. 设计方案
-      const design = await this.createDesign(requirement);
-      
-      // 3. 编写代码
-      const code = await this.writeCode(design);
-      
-      // 4. 自检测试
-      const testResult = await selfTest(code);
+      const requirement = this.parseRequirement(input, aiResponse);
+      const design = this.parseDesign(aiResponse);
+      const code = this.extractCode(aiResponse);
+      const testResult = await this.selfTest(code);
 
       return {
         success: testResult.passed,
@@ -59,7 +68,8 @@ export class Engineer extends AgentBase {
           requirement,
           design,
           code,
-          testReport: testResult
+          testReport: testResult,
+          aiAnalysis: aiResponse
         },
         executionTime: Date.now() - startTime
       };
@@ -74,94 +84,100 @@ export class Engineer extends AgentBase {
     }
   }
 
-  private async analyzeRequirement(input: string): Promise<Record<string, any>> {
-    this.log('分析技术需求...');
-    
+  private parseRequirement(input: string, aiResponse: string): Record<string, any> {
     return {
-      functionalRequirements: this.extractFunctionalReqs(input),
-      nonFunctionalRequirements: this.extractNonFunctionalReqs(input),
-      constraints: this.identifyConstraints(input)
+      originalInput: input,
+      functionalRequirements: this.extractList(aiResponse, '功能需求') || ['实现核心功能'],
+      nonFunctionalRequirements: this.extractList(aiResponse, '非功能需求') || ['性能要求', '安全要求'],
+      constraints: ['技术约束', '时间约束']
     };
   }
 
-  private async createDesign(requirement: any): Promise<Record<string, any>> {
-    this.log('创建技术设计...');
-    
+  private parseDesign(aiResponse: string): Record<string, any> {
     return {
-      architecture: '系统架构设计',
-      modules: this.designModules(requirement),
-      interfaces: this.designInterfaces(requirement),
-      dataModel: this.designDataModel(requirement)
+      architecture: '模块化架构设计',
+      modules: this.extractList(aiResponse, '模块') || ['核心模块', '工具模块'],
+      interfaces: this.extractList(aiResponse, '接口') || ['API 接口 1', 'API 接口 2'],
+      dataModel: {
+        entities: ['实体 1', '实体 2'],
+        relationships: []
+      }
     };
   }
 
-  private async writeCode(design: any): Promise<string> {
-    this.log('编写代码...');
-    
-    // 实际项目中应调用代码生成模型
-    return `// 生成的代码
-function implementFeature() {
-  // 实现逻辑
-  return '完成';
-}`;
+  private extractCode(aiResponse: string): string {
+    const codeMatch = aiResponse.match(/```[\s\S]*?```/g);
+    if (codeMatch && codeMatch.length > 0) {
+      return codeMatch.map(block => block.replace(/```\w*\n?/g, '')).join('\n\n');
+    }
+    return aiResponse;
   }
 
   private async selfTest(code: string): Promise<{passed: boolean; issues: string[]}> {
     this.log('进行自检测试...');
     
-    // 实际项目中应运行单元测试
+    const testPrompt = `请检查以下代码是否存在明显问题：
+
+${code.substring(0, 1000)}
+
+请回答：
+1. 是否存在语法错误？
+2. 是否存在逻辑问题？
+3. 是否符合最佳实践？
+
+如果代码看起来没问题，请回答"通过"，否则列出问题。`;
+
+    const response = await this.callAI(testPrompt);
+    const passed = response.includes('通过') || response.includes('没有问题');
+    
     return {
-      passed: true,
-      issues: []
+      passed,
+      issues: passed ? [] : [response.substring(0, 200)]
     };
   }
 
-  private extractFunctionalReqs(input: string): string[] {
-    return ['功能需求 1', '功能需求 2'];
+  private extractList(text: string, keyword: string): string[] | null {
+    const regex = new RegExp(`${keyword}[：:][\\s\\S]*?(?=\\n\\d|\\n[A-Z]|$)`, 'i');
+    const match = text.match(regex);
+    if (match) {
+      const items = match[0].split('\n')
+        .filter(line => line.trim().startsWith('-') || line.trim().match(/^\d/))
+        .map(line => line.replace(/^[-\d\.\s]+/, '').trim())
+        .filter(line => line.length > 0);
+      return items.length > 0 ? items : null;
+    }
+    return null;
   }
 
-  private extractNonFunctionalReqs(input: string): string[] {
-    return ['性能要求', '安全要求'];
-  }
-
-  private identifyConstraints(input: string): string[] {
-    return ['技术约束', '时间约束'];
-  }
-
-  private designModules(requirement: any): string[] {
-    return ['模块 1', '模块 2'];
-  }
-
-  private designInterfaces(requirement: any): string[] {
-    return ['接口 1', '接口 2'];
-  }
-
-  private designDataModel(requirement: any): Record<string, any> {
-    return {
-      entities: ['实体 1', '实体 2'],
-      relationships: []
-    };
-  }
-
-  /**
-   * 代码审查
-   */
   public async reviewCode(code: string): Promise<Record<string, any>> {
     this.log('代码审查...');
     
+    const reviewPrompt = `请对以下代码进行审查：
+
+${code}
+
+请评估：
+1. 代码质量（1-10分）
+2. 存在的问题
+3. 改进建议`;
+
+    const response = await this.callAI(reviewPrompt);
+    
     return {
-      quality: 'good',
+      quality: response.includes('质量') ? 'good' : 'needs_improvement',
       issues: [],
-      suggestions: ['建议优化']
+      suggestions: [response.substring(0, 200)],
+      aiReview: response
     };
   }
 
-  /**
-   * 重构优化
-   */
   public async refactor(code: string): Promise<string> {
     this.log('代码重构...');
     
-    return '// 重构后的代码';
+    const refactorPrompt = `请重构以下代码，使其更加清晰和高效：
+
+${code}`;
+
+    return await this.callAI(refactorPrompt);
   }
 }

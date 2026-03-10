@@ -17,48 +17,34 @@ const advisorConfig: AgentConfig = {
   layer: AgentLayer.DECISION,
   triggerKeywords: ['咨询', '建议', '评审', '风险', '评估', 'advisor', 'review'],
   maxIterations: 3,
-  enableLogging: true
+  enableLogging: true,
+  systemPrompt: `你是一位资深顾问专家。你的职责是：
+1. 评估方案的合理性和可行性
+2. 识别潜在风险并提供应对建议
+3. 提供专业领域的改进意见
+4. 确保方案符合最佳实践
+
+请以客观、专业的角度进行评审。`
 };
 
-/**
- * 评审意见接口
- */
 export interface ReviewOpinion {
-  /** 方案名称 */
   proposalName: string;
-  /** 总体评价 */
   overallRating: 'excellent' | 'good' | 'fair' | 'poor';
-  /** 优点列表 */
   strengths: string[];
-  /** 缺点列表 */
   weaknesses: string[];
-  /** 风险点 */
   risks: RiskAssessment[];
-  /** 改进建议 */
   recommendations: string[];
-  /** 是否通过评审 */
   approved: boolean;
 }
 
-/**
- * 风险评估接口
- */
 export interface RiskAssessment {
-  /** 风险描述 */
   description: string;
-  /** 发生概率 */
   probability: 'low' | 'medium' | 'high';
-  /** 影响程度 */
   impact: 'low' | 'medium' | 'high' | 'critical';
-  /** 风险等级 */
-  riskLevel: number; // 1-5
-  /** 应对措施 */
+  riskLevel: number;
   mitigation: string;
 }
 
-/**
- * 顾问类
- */
 export class Advisor extends AgentBase {
   constructor() {
     super(advisorConfig);
@@ -75,20 +61,32 @@ export class Advisor extends AgentBase {
     try {
       this.log('开始评审方案...');
 
-      // 1. 分析方案
-      const analysis = await this.analyzeProposal(input);
+      const reviewPrompt = `请对以下方案进行专业评审：
+
+方案内容：
+${input}
+
+请按以下结构输出评审意见：
+1. 总体评价（优秀/良好/一般/较差）
+2. 方案优点（至少3点）
+3. 方案缺点（至少2点）
+4. 风险评估（识别主要风险及应对措施）
+5. 改进建议（具体可行的建议）
+6. 是否推荐通过（是/否）`;
+
+      const aiResponse = await this.callAI(reviewPrompt);
       
-      // 2. 识别风险
-      const risks = await this.identifyRisks(analysis);
-      
-      // 3. 生成评审意见
-      const opinion = await this.generateReview(analysis, risks);
+      const analysis = this.parseAnalysis(input, aiResponse);
+      const risks = this.extractRisks(aiResponse);
+      const opinion = this.generateOpinion(aiResponse, risks);
 
       return {
         success: true,
         output: `评审完成：${opinion.overallRating}`,
         documents: {
-          reviewOpinion: opinion
+          reviewOpinion: opinion,
+          analysis,
+          aiReview: aiResponse
         },
         executionTime: Date.now() - startTime
       };
@@ -103,110 +101,78 @@ export class Advisor extends AgentBase {
     }
   }
 
-  private async analyzeProposal(proposal: string): Promise<Record<string, any>> {
-    this.log('分析方案内容...');
-    
+  private parseAnalysis(proposal: string, aiResponse: string): Record<string, any> {
     return {
       originalProposal: proposal,
-      objectives: this.extractObjectives(proposal),
-      methodology: this.extractMethodology(proposal),
-      resources: this.estimateResources(proposal)
+      objectives: this.extractList(aiResponse, '目标') || ['待分析'],
+      methodology: this.extractSection(aiResponse, '方法论') || '标准方法论',
+      aiAnalysis: aiResponse
     };
   }
 
-  private async identifyRisks(analysis: Record<string, any>): Promise<RiskAssessment[]> {
-    this.log('识别潜在风险...');
-    
-    return [
-      {
-        description: '技术风险',
+  private extractRisks(aiResponse: string): RiskAssessment[] {
+    const risks: RiskAssessment[] = [];
+    if (aiResponse.includes('风险')) {
+      risks.push({
+        description: '项目执行风险',
         probability: 'medium',
         impact: 'high',
         riskLevel: 4,
-        mitigation: '提前进行技术预研'
-      },
-      {
-        description: '进度风险',
-        probability: 'medium',
-        impact: 'medium',
-        riskLevel: 3,
-        mitigation: '设置缓冲时间'
-      }
-    ];
+        mitigation: '提前进行风险评估和预案准备'
+      });
+    }
+    return risks;
   }
 
-  private async generateReview(
-    analysis: Record<string, any>,
-    risks: RiskAssessment[]
-  ): Promise<ReviewOpinion> {
-    this.log('生成评审意见...');
-    
-    const avgRiskLevel = risks.reduce((sum, r) => sum + r.riskLevel, 0) / risks.length;
+  private generateOpinion(aiResponse: string, risks: RiskAssessment[]): ReviewOpinion {
+    const rating = this.determineRating(aiResponse);
     
     return {
       proposalName: '方案评审',
-      overallRating: avgRiskLevel < 3 ? 'good' : 'fair',
-      strengths: [
-        '方案结构清晰',
-        '目标明确',
-        '方法论合理'
-      ],
-      weaknesses: [
-        '部分细节待完善',
-        '资源估算偏乐观'
-      ],
+      overallRating: rating,
+      strengths: this.extractList(aiResponse, '优点') || ['方案结构清晰', '目标明确'],
+      weaknesses: this.extractList(aiResponse, '缺点') || ['部分细节待完善'],
       risks: risks,
-      recommendations: [
-        '建议增加风险评估章节',
-        '细化实施步骤',
-        '预留充足的测试时间'
-      ],
-      approved: avgRiskLevel < 4
+      recommendations: this.extractList(aiResponse, '建议') || ['建议增加风险评估', '细化实施步骤'],
+      approved: rating !== 'poor'
     };
   }
 
-  /**
-   * 提取目标
-   */
-  private extractObjectives(proposal: string): string[] {
-    // 实际项目中应使用 NLP 提取
-    return ['目标 1', '目标 2'];
+  private determineRating(text: string): 'excellent' | 'good' | 'fair' | 'poor' {
+    if (text.includes('优秀') || text.includes('excellent')) return 'excellent';
+    if (text.includes('良好') || text.includes('good')) return 'good';
+    if (text.includes('一般') || text.includes('fair')) return 'fair';
+    return 'good';
   }
 
-  /**
-   * 提取方法论
-   */
-  private extractMethodology(proposal: string): string {
-    return '描述方法论';
+  private extractList(text: string, keyword: string): string[] | null {
+    const regex = new RegExp(`${keyword}[：:][\\s\\S]*?(?=\\n\\d|\\n[A-Z]|$)`, 'i');
+    const match = text.match(regex);
+    if (match) {
+      const items = match[0].split('\n')
+        .filter(line => line.trim().startsWith('-') || line.trim().match(/^\d/))
+        .map(line => line.replace(/^[-\d\.\s]+/, '').trim())
+        .filter(line => line.length > 0);
+      return items.length > 0 ? items : null;
+    }
+    return null;
   }
 
-  /**
-   * 估算资源
-   */
-  private estimateResources(proposal: string): Record<string, any> {
-    return {
-      time: '预计时间',
-      human: '所需人力',
-      technical: '技术资源'
-    };
+  private extractSection(text: string, sectionName: string): string | null {
+    const regex = new RegExp(`${sectionName}[：:][\\s\\S]*?(?=\\n\\d|\\n[A-Z]|$)`, 'i');
+    const match = text.match(regex);
+    return match ? match[0].replace(new RegExp(`${sectionName}[：:]`, 'i'), '').trim() : null;
   }
 
-  /**
-   * 快速咨询（轻量级建议）
-   */
   public async quickConsult(question: string): Promise<string[]> {
     this.log(`快速咨询：${question}`);
-    
-    return ['建议 1', '建议 2', '建议 3'];
+    const response = await this.callAI(`请针对以下问题提供3条简短建议：\n${question}`);
+    return response.split('\n').filter(line => line.trim().length > 0).slice(0, 3);
   }
 
-  /**
-   * 检查合规性
-   */
   public async checkCompliance(proposal: any): Promise<boolean> {
     this.log('检查合规性...');
-    
-    // 实际项目中应检查各项标准
-    return true;
+    const response = await this.callAI(`请检查以下方案是否符合最佳实践（回答"符合"或"不符合"）：\n${JSON.stringify(proposal)}`);
+    return response.includes('符合');
   }
 }

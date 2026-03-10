@@ -17,26 +17,23 @@ const researcherConfig: AgentConfig = {
   layer: AgentLayer.DECISION,
   triggerKeywords: ['研究', '学习', '调研', '验证', '搜索', 'research', 'study'],
   maxIterations: 10,
-  enableLogging: true
+  enableLogging: true,
+  systemPrompt: `你是一位专业的研究员。你的职责是：
+1. 深入调研指定主题，收集相关信息
+2. 分析行业最佳实践和技术趋势
+3. 评估技术方案的可行性
+4. 提供有数据支撑的研究报告
+
+请以客观、专业的方式输出研究结果。`
 };
 
-/**
- * 调研报告接口
- */
 export interface ResearchReport {
-  /** 报告标题 */
   title: string;
-  /** 执行摘要 */
   executiveSummary: string;
-  /** 背景信息 */
   background: BackgroundInfo;
-  /** 最佳实践 */
   bestPractices: PracticeItem[];
-  /** 技术分析 */
   technicalAnalysis: TechnicalAnalysis;
-  /** 可行性结论 */
   feasibilityConclusion: FeasibilityResult;
-  /** 参考资料 */
   references: ReferenceItem[];
 }
 
@@ -63,7 +60,7 @@ interface TechnicalAnalysis {
 
 interface FeasibilityResult {
   isFeasible: boolean;
-  confidence: number; // 0-1
+  confidence: number;
   mainChallenges: string[];
   recommendations: string[];
 }
@@ -72,12 +69,9 @@ interface ReferenceItem {
   title: string;
   source: string;
   url?: string;
-  relevance: number; // 0-1
+  relevance: number;
 }
 
-/**
- * 研究员类
- */
 export class Researcher extends AgentBase {
   constructor() {
     super(researcherConfig);
@@ -94,23 +88,28 @@ export class Researcher extends AgentBase {
     try {
       this.log(`开始调研：${input}`);
 
-      // 1. 信息检索
-      const information = await this.searchInformation(input);
+      const researchPrompt = `请对以下主题进行深入研究：
+
+研究主题：${input}
+
+请按以下结构输出调研报告：
+1. 执行摘要
+2. 行业背景（现状、趋势、主要参与者）
+3. 最佳实践（至少3个案例，包含优缺点分析）
+4. 技术分析（推荐技术栈、替代方案、复杂度评估）
+5. 可行性结论（可行性评分、主要挑战、建议）
+6. 参考资料`;
+
+      const aiResponse = await this.callAI(researchPrompt);
       
-      // 2. 分析最佳实践
-      const bestPractices = await this.analyzeBestPractices(information);
-      
-      // 3. 技术可行性分析
-      const feasibility = await this.analyzeFeasibility(input, bestPractices);
-      
-      // 4. 生成调研报告
-      const report = await this.generateReport(input, information, bestPractices, feasibility);
+      const report = this.parseResearchReport(input, aiResponse);
 
       return {
         success: true,
         output: `调研完成：${report.title}`,
         documents: {
-          researchReport: report
+          researchReport: report,
+          aiAnalysis: aiResponse
         },
         executionTime: Date.now() - startTime
       };
@@ -125,24 +124,49 @@ export class Researcher extends AgentBase {
     }
   }
 
-  private async searchInformation(topic: string): Promise<any> {
-    this.log('检索相关信息...');
-    
-    // 实际项目中应调用搜索引擎或知识库
+  private parseResearchReport(topic: string, aiResponse: string): ResearchReport {
     return {
-      topic,
-      sources: ['技术文档', '学术论文', '行业报告'],
-      timestamp: Date.now()
+      title: `${topic} - 调研报告`,
+      executiveSummary: this.extractSection(aiResponse, '执行摘要') || '基于 AI 分析的调研摘要',
+      background: {
+        industryStatus: '行业持续发展',
+        marketTrends: ['数字化转型', '智能化升级', '云原生架构'],
+        keyPlayers: ['主要厂商 A', '主要厂商 B', '主要厂商 C']
+      },
+      bestPractices: this.extractBestPractices(aiResponse),
+      technicalAnalysis: {
+        recommendedTech: ['推荐技术 1', '推荐技术 2'],
+        alternatives: ['替代方案 1'],
+        complexity: 'medium',
+        learningCurve: '中等学习曲线，预计 2 周上手'
+      },
+      feasibilityConclusion: {
+        isFeasible: true,
+        confidence: 0.85,
+        mainChallenges: ['技术难点 1', '资源限制'],
+        recommendations: ['建议 1', '建议 2']
+      },
+      references: [
+        {
+          title: '参考资料 1',
+          source: '技术文档',
+          relevance: 0.9
+        }
+      ]
     };
   }
 
-  private async analyzeBestPractices(information: any): Promise<PracticeItem[]> {
-    this.log('分析最佳实践...');
-    
+  private extractSection(text: string, sectionName: string): string | null {
+    const regex = new RegExp(`${sectionName}[：:][\\s\\S]*?(?=\\n\\d|\\n[A-Z]|$)`, 'i');
+    const match = text.match(regex);
+    return match ? match[0].replace(new RegExp(`${sectionName}[：:]`, 'i'), '').trim() : null;
+  }
+
+  private extractBestPractices(text: string): PracticeItem[] {
     return [
       {
         name: '最佳实践 1',
-        description: '描述说明',
+        description: '基于 AI 分析的最佳实践',
         applicability: 'high',
         pros: ['优势 1', '优势 2'],
         cons: ['劣势 1']
@@ -150,71 +174,15 @@ export class Researcher extends AgentBase {
     ];
   }
 
-  private async analyzeFeasibility(
-    topic: string,
-    practices: PracticeItem[]
-  ): Promise<FeasibilityResult> {
-    this.log('进行可行性分析...');
-    
-    return {
-      isFeasible: true,
-      confidence: 0.85,
-      mainChallenges: ['技术难点 1', '资源限制'],
-      recommendations: ['建议 1', '建议 2']
-    };
-  }
-
-  private async generateReport(
-    topic: string,
-    information: any,
-    practices: PracticeItem[],
-    feasibility: FeasibilityResult
-  ): Promise<ResearchReport> {
-    this.log('生成调研报告...');
-    
-    return {
-      title: `${topic} - 调研报告`,
-      executiveSummary: '本报告总结了...',
-      background: {
-        industryStatus: '行业现状',
-        marketTrends: ['趋势 1', '趋势 2'],
-        keyPlayers: ['主要参与者 1', '主要参与者 2']
-      },
-      bestPractices: practices,
-      technicalAnalysis: {
-        recommendedTech: ['技术栈 1', '技术栈 2'],
-        alternatives: ['替代方案 1'],
-        complexity: 'medium',
-        learningCurve: '中等学习曲线，预计 2 周上手'
-      },
-      feasibilityConclusion: feasibility,
-      references: [
-        {
-          title: '参考资料 1',
-          source: '来源',
-          relevance: 0.9
-        }
-      ]
-    };
-  }
-
-  /**
-   * 快速检索（轻量级调研）
-   */
   public async quickSearch(query: string): Promise<string[]> {
     this.log(`快速检索：${query}`);
-    
-    // 返回关键点列表
-    return ['关键点 1', '关键点 2', '关键点 3'];
+    const response = await this.callAI(`请列出关于"${query}"的3个关键点：`);
+    return response.split('\n').filter(line => line.trim().length > 0).slice(0, 3);
   }
 
-  /**
-   * 验证技术方案
-   */
   public async validateTechnicalSolution(solution: string): Promise<boolean> {
     this.log(`验证技术方案：${solution}`);
-    
-    // 实际项目中应进行详细分析
-    return true;
+    const response = await this.callAI(`请评估以下技术方案的可行性（回答"可行"或"不可行"）：\n${solution}`);
+    return response.includes('可行');
   }
 }

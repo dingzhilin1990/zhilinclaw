@@ -5,14 +5,13 @@
   "main": "src/core/index.ets",
   "type": "module",
   "scripts": {
-    "build": "hvigorw assembleHap --mode module",
-    "test": "hvigorw test",
-    "lint": "eslint src/**/*.ets",
-    "start": "hvigorw run",
-    "demo:main": "hvigorw run --entry examples/main.ets",
-    "demo:security": "hvigorw run --entry examples/SecurityDemo.ets",
-    "demo:hanwudi": "hvigorw run --entry examples/HanwudiDemo.ets",
-    "demo:all": "npm run demo:main && npm run demo:security && npm run demo:hanwudi",
+    "build": "echo 'HarmonyOS build requires DevEco Studio. Run: hvigorw assembleHap'",
+    "test": "echo 'Run tests in DevEco Studio'",
+    "lint": "echo 'Linting requires DevEco Studio'",
+    "start": "echo 'Start requires DevEco Studio'",
+    "demo:main": "node --experimental-specifier-resolution=node examples/main.mjs",
+    "demo:security": "node --experimental-specifier-resolution=node examples/SecurityDemo.mjs",
+    "demo:hanwudi": "node --experimental-specifier-resolution=node examples/HanwudiDemo.mjs",
     "docs:gen": "echo 'Generating documentation...'",
     "clean": "rm -rf build/ dist/ node_modules/"
   },
@@ -30,10 +29,7 @@
   ],
   "author": "zhilinclaw team",
   "license": "Apache-2.0",
-  "devDependencies": {
-    "@ohos/hvigor-ohos-plugin": "^4.0.0",
-    "@ohos/hvigor": "^4.0.0"
-  },
+  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "https://github.com/zhilinclaw/zhilinclaw.git"

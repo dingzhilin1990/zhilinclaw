@@ -9,75 +9,51 @@
  * 触发关键词：策略、规划、方案、分配
  */
 
-import { AgentBase, AgentConfig, AgentContext, AgentResult, AgentRole, AgentLayer, AgentType } from './AgentBase';
+import { AgentBase, AgentConfig, AgentContext, AgentResult, AgentRole, AgentLayer } from './AgentBase';
 
-/**
- * 策略师配置
- */
 const strategistConfig: AgentConfig = {
   name: '策略师',
   role: AgentRole.STRATEGIST,
   layer: AgentLayer.DECISION,
   triggerKeywords: ['策略', '规划', '方案', '分配', '计划', 'strategy', 'plan'],
   maxIterations: 5,
-  enableLogging: true
+  enableLogging: true,
+  systemPrompt: `你是一位资深的策略规划专家。你的职责是：
+1. 深入分析用户需求，识别核心目标和关键约束
+2. 制定清晰的执行策略，划分合理的阶段
+3. 评估潜在风险并提供应对措施
+4. 分配适当的资源确保项目成功
+
+请以结构化的方式输出你的分析和建议。`
 };
 
-/**
- * 执行策略接口
- */
 export interface ExecutionStrategy {
-  /** 总体目标 */
   objective: string;
-  /** 阶段划分 */
   phases: StrategyPhase[];
-  /** 资源分配 */
   resourceAllocation: Record<string, any>;
-  /** 风险评估 */
   riskAssessment: RiskItem[];
-  /** 成功标准 */
   successCriteria: string[];
 }
 
-/**
- * 策略阶段接口
- */
 export interface StrategyPhase {
-  /** 阶段名称 */
   name: string;
-  /** 阶段目标 */
   objective: string;
-  /** 关键任务 */
   keyTasks: string[];
-  /** 预期产出 */
   deliverables: string[];
-  /** 预计耗时 */
   estimatedTime?: number;
 }
 
-/**
- * 风险项接口
- */
 export interface RiskItem {
-  /** 风险描述 */
   description: string;
-  /** 风险等级 */
   level: 'low' | 'medium' | 'high' | 'critical';
-  /** 应对措施 */
   mitigation: string;
 }
 
-/**
- * 策略师类
- */
 export class Strategist extends AgentBase {
   constructor() {
     super(strategistConfig);
   }
 
-  /**
-   * 处理策略规划任务
-   */
   async process(input: string, context?: AgentContext): Promise<AgentResult> {
     const startTime = Date.now();
     
@@ -89,14 +65,22 @@ export class Strategist extends AgentBase {
     try {
       this.log('开始分析需求并制定策略...');
 
-      // 1. 需求分析
-      const requirementAnalysis = await this.analyzeRequirement(input);
+      const analysisPrompt = `请分析以下需求并制定执行策略：
+
+需求描述：
+${input}
+
+请按以下格式输出：
+1. 需求分析（核心需求、约束条件、利益相关者）
+2. 执行策略（阶段划分、关键任务、预期产出）
+3. 风险评估（潜在风险、风险等级、应对措施）
+4. 成功标准`;
+
+      const aiResponse = await this.callAI(analysisPrompt);
       
-      // 2. 制定执行策略
-      const strategy = await this.developStrategy(requirementAnalysis);
-      
-      // 3. 资源分配
-      const resourcePlan = await this.allocateResources(strategy);
+      const requirementAnalysis = this.parseRequirementAnalysis(aiResponse, input);
+      const strategy = this.parseStrategy(aiResponse);
+      const resourcePlan = this.generateResourcePlan(strategy);
 
       const executionTime = Date.now() - startTime;
 
@@ -106,7 +90,8 @@ export class Strategist extends AgentBase {
         documents: {
           requirementAnalysis,
           strategy,
-          resourcePlan
+          resourcePlan,
+          aiAnalysis: aiResponse
         },
         executionTime
       };
@@ -121,28 +106,17 @@ export class Strategist extends AgentBase {
     }
   }
 
-  /**
-   * 分析需求
-   */
-  private async analyzeRequirement(input: string): Promise<Record<string, any>> {
-    this.log('进行需求分析...');
-    
-    // 实际项目中应调用 AI 模型进行分析
+  private parseRequirementAnalysis(aiResponse: string, originalInput: string): Record<string, any> {
     return {
-      originalInput: input,
-      coreNeeds: this.extractCoreNeeds(input),
-      constraints: this.identifyConstraints(input),
-      stakeholders: this.identifyStakeholders(input)
+      originalInput,
+      coreNeeds: this.extractList(aiResponse, '核心需求') || ['需求分析中'],
+      constraints: this.extractList(aiResponse, '约束条件') || ['待确定'],
+      stakeholders: this.extractList(aiResponse, '利益相关者') || ['用户', '开发团队'],
+      aiAnalysis: aiResponse
     };
   }
 
-  /**
-   * 制定策略
-   */
-  private async developStrategy(analysis: Record<string, any>): Promise<ExecutionStrategy> {
-    this.log('制定执行策略...');
-    
-    // 实际项目中应调用 AI 模型生成策略
+  private parseStrategy(aiResponse: string): ExecutionStrategy {
     return {
       objective: '实现用户需求',
       phases: [
@@ -169,17 +143,12 @@ export class Strategist extends AgentBase {
         }
       ],
       resourceAllocation: {},
-      riskAssessment: [],
+      riskAssessment: this.extractRisks(aiResponse),
       successCriteria: ['功能完整', '性能达标', '用户满意']
     };
   }
 
-  /**
-   * 分配资源
-   */
-  private async allocateResources(strategy: ExecutionStrategy): Promise<Record<string, any>> {
-    this.log('进行资源分配...');
-    
+  private generateResourcePlan(strategy: ExecutionStrategy): Record<string, any> {
     return {
       humanResources: {
         decision: ['策略师', '研究员', '顾问'],
@@ -194,32 +163,32 @@ export class Strategist extends AgentBase {
     };
   }
 
-  /**
-   * 提取核心需求
-   */
-  private extractCoreNeeds(input: string): string[] {
-    // 实际项目中应使用 NLP 技术提取
-    return ['核心需求 1', '核心需求 2'];
+  private extractList(text: string, keyword: string): string[] | null {
+    const regex = new RegExp(`${keyword}[：:][\\s\\S]*?(?=\\n\\d|\\n[A-Z]|$)`, 'i');
+    const match = text.match(regex);
+    if (match) {
+      const items = match[0].split('\n')
+        .filter(line => line.trim().startsWith('-') || line.trim().match(/^\d/))
+        .map(line => line.replace(/^[-\d\.\s]+/, '').trim())
+        .filter(line => line.length > 0);
+      return items.length > 0 ? items : null;
+    }
+    return null;
   }
 
-  /**
-   * 识别约束条件
-   */
-  private identifyConstraints(input: string): string[] {
-    // 识别时间、资源、技术等约束
-    return ['时间约束', '资源约束'];
+  private extractRisks(text: string): RiskItem[] {
+    const risks: RiskItem[] = [];
+    const riskMatch = text.match(/风险[评估]*[：:][\s\S]*?(?=\n\d|\n[A-Z]|$)/i);
+    if (riskMatch) {
+      risks.push({
+        description: '项目执行风险',
+        level: 'medium',
+        mitigation: '制定详细的应急预案'
+      });
+    }
+    return risks;
   }
 
-  /**
-   * 识别利益相关者
-   */
-  private identifyStakeholders(input: string): string[] {
-    return ['用户', '开发团队', '管理层'];
-  }
-
-  /**
-   * 获取策略文档
-   */
   public getStrategyDocument(): string {
     return JSON.stringify({
       agent: this.config.name,

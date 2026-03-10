@@ -1,0 +1,20 @@
+{
+  "module": {
+    "name": "zhilinclaw",
+    "type": "har",
+    "deviceTypes": [
+      "default",
+      "tablet"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    "abilities": [],
+    "metadata": [
+      {
+        "name": "ArkTSPartialUpdate",
+        "value": "true"
+      }
+    ]
+  }
+}

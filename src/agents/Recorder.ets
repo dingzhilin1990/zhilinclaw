@@ -17,12 +17,16 @@ const recorderConfig: AgentConfig = {
   layer: AgentLayer.EXECUTION,
   triggerKeywords: ['文档', '记录', '归档', '日志', '笔记', 'document', 'record'],
   maxIterations: 5,
-  enableLogging: true
+  enableLogging: true,
+  systemPrompt: `你是一位专业的技术文档撰写专家。你的职责是：
+1. 整理和记录项目过程信息
+2. 编写清晰、结构化的技术文档
+3. 归档项目成果和知识资产
+4. 确保文档的完整性和可追溯性
+
+请输出规范的文档格式。`
 };
 
-/**
- * 文档类型
- */
 export enum DocumentType {
   MEETING_NOTES = 'meeting_notes',
   TECHNICAL_DOC = 'technical_doc',
@@ -32,55 +36,31 @@ export enum DocumentType {
   CHANGELOG = 'changelog'
 }
 
-/**
- * 文档接口
- */
 export interface Document {
-  /** 文档 ID */
   id: string;
-  /** 文档标题 */
   title: string;
-  /** 文档类型 */
   type: DocumentType;
-  /** 内容 */
   content: string;
-  /** 创建者 */
   author: string;
-  /** 创建时间 */
   createdAt: number;
-  /** 更新时间 */
   updatedAt: number;
-  /** 标签列表 */
   tags?: string[];
-  /** 关联任务 ID */
   relatedTaskId?: string;
-  /** 版本号 */
   version?: string;
 }
 
-/**
- * 归档包接口
- */
 export interface ArchivePackage {
-  /** 归档 ID */
   id: string;
-  /** 归档名称 */
   name: string;
-  /** 包含的文档列表 */
   documents: Document[];
-  /** 归档时间 */
   archivedAt: number;
-  /** 归档说明 */
   description?: string;
 }
 
-/**
- * 记录官类
- */
 export class Recorder extends AgentBase {
   private documents: Map<string, Document> = new Map();
   private archives: Map<string, ArchivePackage> = new Map();
-  private logCounter: number = 0;
+  private docCounter: number = 0;
 
   constructor() {
     super(recorderConfig);
@@ -97,24 +77,39 @@ export class Recorder extends AgentBase {
     try {
       this.log('开始记录文档...');
 
-      // 1. 整理信息
-      const organizedInfo = await this.organizeInformation(input);
+      const docPrompt = `请根据以下信息编写技术文档：
+
+内容描述：${input}
+
+请按以下结构输出：
+# 文档标题
+
+## 概述
+简要描述文档目的和范围
+
+## 详细内容
+详细说明相关内容
+
+## 总结
+总结要点和后续行动
+
+## 附录
+相关参考资料`;
+
+      const aiResponse = await this.callAI(docPrompt);
       
-      // 2. 编写文档
-      const document = await this.writeDocument(organizedInfo);
-      
-      // 3. 存储文档
+      const organizedInfo = this.organizeInformation(input, aiResponse);
+      const document = this.createDocument(organizedInfo, aiResponse);
       await this.storeDocument(document);
-      
-      // 4. 生成索引
-      const index = await this.generateIndex();
+      const index = this.generateIndex();
 
       return {
         success: true,
         output: `文档已创建：${document.title}`,
         documents: {
           document,
-          index
+          index,
+          aiContent: aiResponse
         },
         executionTime: Date.now() - startTime
       };
@@ -129,24 +124,24 @@ export class Recorder extends AgentBase {
     }
   }
 
-  private async organizeInformation(input: string): Promise<Record<string, any>> {
-    this.log('整理信息...');
-    
+  private organizeInformation(input: string, aiResponse: string): Record<string, any> {
     return {
       source: input,
-      keyPoints: this.extractKeyPoints(input),
-      structure: this.determineStructure(input)
+      keyPoints: this.extractKeyPoints(aiResponse),
+      structure: ['概述', '详细内容', '总结', '附录'],
+      aiContent: aiResponse
     };
   }
 
-  private async writeDocument(info: Record<string, any>): Promise<Document> {
-    this.log('编写文档...');
-    
+  private createDocument(info: Record<string, any>, aiResponse: string): Document {
+    const titleMatch = aiResponse.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1] : '技术文档';
+
     const doc: Document = {
-      id: `doc_${Date.now()}_${++this.logCounter}`,
-      title: '文档标题',
+      id: `doc_${Date.now()}_${++this.docCounter}`,
+      title: title,
       type: DocumentType.TECHNICAL_DOC,
-      content: '# 文档内容\n\n这是文档正文...',
+      content: aiResponse,
       author: this.config.name,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -162,9 +157,7 @@ export class Recorder extends AgentBase {
     this.log(`文档已存储：${document.id}`);
   }
 
-  private async generateIndex(): Promise<Record<string, any>> {
-    this.log('生成索引...');
-    
+  private generateIndex(): Record<string, any> {
     return {
       totalDocuments: this.documents.size,
       byType: this.getDocumentsByType(),
@@ -174,12 +167,15 @@ export class Recorder extends AgentBase {
     };
   }
 
-  private extractKeyPoints(input: string): string[] {
-    return ['关键点 1', '关键点 2'];
-  }
-
-  private determineStructure(input: string): string[] {
-    return ['引言', '正文', '总结'];
+  private extractKeyPoints(text: string): string[] {
+    const points: string[] = [];
+    const lines = text.split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-') || line.trim().match(/^\d+\./)) {
+        points.push(line.replace(/^[-\d\.\s]+/, '').trim());
+      }
+    }
+    return points.slice(0, 5);
   }
 
   private getDocumentsByType(): Record<string, number> {
@@ -190,38 +186,25 @@ export class Recorder extends AgentBase {
     return result;
   }
 
-  /**
-   * 添加文档
-   */
   public addDocument(document: Document): void {
     this.documents.set(document.id, document);
     this.log(`添加文档：${document.title}`);
   }
 
-  /**
-   * 获取文档
-   */
   public getDocument(id: string): Document | null {
     return this.documents.get(id) || null;
   }
 
-  /**
-   * 更新文档
-   */
   public updateDocument(id: string, updates: Partial<Document>): boolean {
     const doc = this.documents.get(id);
     if (!doc) return false;
 
     Object.assign(doc, updates, { updatedAt: Date.now() });
     this.documents.set(id, doc);
-    
     this.log(`更新文档：${id}`);
     return true;
   }
 
-  /**
-   * 删除文档
-   */
   public deleteDocument(id: string): boolean {
     const deleted = this.documents.delete(id);
     if (deleted) {
@@ -230,9 +213,6 @@ export class Recorder extends AgentBase {
     return deleted;
   }
 
-  /**
-   * 创建归档包
-   */
   public createArchive(name: string, documentIds: string[], description?: string): ArchivePackage | null {
     const docs: Document[] = [];
     
@@ -259,16 +239,10 @@ export class Recorder extends AgentBase {
     return archive;
   }
 
-  /**
-   * 获取所有文档
-   */
   public getAllDocuments(): Document[] {
     return Array.from(this.documents.values());
   }
 
-  /**
-   * 搜索文档
-   */
   public searchDocuments(query: string): Document[] {
     this.log(`搜索文档：${query}`);
     
@@ -278,19 +252,13 @@ export class Recorder extends AgentBase {
     );
   }
 
-  /**
-   * 导出文档为 Markdown
-   */
   public exportToMarkdown(documentId: string): string | null {
     const doc = this.getDocument(documentId);
     if (!doc) return null;
 
-    return `# ${doc.title}\n\n${doc.content}`;
+    return doc.content;
   }
 
-  /**
-   * 获取统计信息
-   */
   public getStats(): Record<string, any> {
     return {
       totalDocuments: this.documents.size,

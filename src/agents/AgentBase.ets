@@ -4,6 +4,8 @@
  * 定义所有 Agent 角色的通用接口和基类
  */
 
+import { AIModelAdapter, ChatMessage, AIResponse } from '../adapters/AIModelAdapter';
+
 /**
  * Agent 所属层级
  */
@@ -60,6 +62,8 @@ export interface AgentConfig {
   maxIterations?: number;
   /** 是否启用日志 */
   enableLogging?: boolean;
+  /** 系统提示词 */
+  systemPrompt?: string;
 }
 
 /**
@@ -121,9 +125,66 @@ export interface AgentResult {
 export abstract class AgentBase {
   public config: AgentConfig;
   protected context?: AgentContext;
+  protected aiModelAdapter?: AIModelAdapter;
 
   constructor(config: AgentConfig) {
     this.config = config;
+  }
+
+  /**
+   * 设置 AI 模型适配器
+   */
+  public setAIModelAdapter(adapter: AIModelAdapter): void {
+    this.aiModelAdapter = adapter;
+    this.log('AI 模型适配器已设置');
+  }
+
+  /**
+   * 调用 AI 模型生成响应
+   */
+  protected async callAI(prompt: string, systemPrompt?: string): Promise<string> {
+    if (!this.aiModelAdapter) {
+      this.log('警告：未设置 AI 模型适配器，使用模拟响应');
+      return this.getSimulatedResponse(prompt);
+    }
+
+    try {
+      const messages: ChatMessage[] = [];
+      
+      if (systemPrompt || this.config.systemPrompt) {
+        messages.push({
+          role: 'system',
+          content: systemPrompt || this.config.systemPrompt || '',
+          timestamp: Date.now()
+        });
+      }
+      
+      messages.push({
+        role: 'user',
+        content: prompt,
+        timestamp: Date.now()
+      });
+
+      const response: AIResponse = await this.aiModelAdapter.chat(messages);
+      
+      if (response.success) {
+        return response.content;
+      } else {
+        this.log(`AI 调用失败：${response.error}`);
+        return this.getSimulatedResponse(prompt);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.log(`AI 调用异常：${errorMessage}`);
+      return this.getSimulatedResponse(prompt);
+    }
+  }
+
+  /**
+   * 获取模拟响应（当 AI 模型不可用时）
+   */
+  protected getSimulatedResponse(prompt: string): string {
+    return `[模拟响应] 针对"${prompt.substring(0, 50)}..."的处理结果。实际部署时将使用真实的 AI 模型。`;
   }
 
   /**

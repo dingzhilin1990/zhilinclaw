@@ -9,18 +9,12 @@
  * 遵循本地优先原则，所有数据存储在本地
  */
 
-/**
- * 存储配置
- */
 export interface StorageConfig {
   type: 'preferences' | 'rdb' | 'file';
   name: string;
   path?: string;
 }
 
-/**
- * 存储适配器基类
- */
 export abstract class StorageAdapter {
   protected config: StorageConfig;
 
@@ -28,58 +22,46 @@ export abstract class StorageAdapter {
     this.config = config;
   }
 
-  /**
-   * 保存数据
-   * @param key 键
-   * @param value 值
-   */
   public abstract save(key: string, value: any): Promise<void>;
-
-  /**
-   * 读取数据
-   * @param key 键
-   */
   public abstract load(key: string): Promise<any>;
-
-  /**
-   * 删除数据
-   * @param key 键
-   */
   public abstract delete(key: string): Promise<void>;
-
-  /**
-   * 检查键是否存在
-   * @param key 键
-   */
   public abstract has(key: string): Promise<boolean>;
-
-  /**
-   * 清空存储
-   */
   public abstract clear(): Promise<void>;
 }
 
-/**
- * Preferences 存储适配器（轻量级键值存储）
- */
 export class PreferencesStorageAdapter extends StorageAdapter {
   private cache: Map<string, string> = new Map();
+  private preferences: any = null;
 
   async save(key: string, value: any): Promise<void> {
     const stringValue = JSON.stringify(value);
     this.cache.set(key, stringValue);
     console.log(`[PreferencesStorage] 保存：${key}`);
     
-    // 实际项目中应调用 OHOS Preferences API
-    // await preferences.getPreferences().then(pref => {
-    //   pref.put(key, stringValue);
-    //   await pref.flush();
-    // });
+    try {
+      if (this.preferences) {
+        await this.preferences.put(key, stringValue);
+        await this.preferences.flush();
+      }
+    } catch (error) {
+      console.warn('[PreferencesStorage] 持久化存储失败，使用内存缓存:', error);
+    }
   }
 
   async load(key: string): Promise<any> {
     const value = this.cache.get(key);
     if (value === undefined) {
+      try {
+        if (this.preferences) {
+          const stored = await this.preferences.get(key, null);
+          if (stored !== null) {
+            this.cache.set(key, stored);
+            return JSON.parse(stored);
+          }
+        }
+      } catch (error) {
+        console.warn('[PreferencesStorage] 读取失败:', error);
+      }
       return null;
     }
     try {
@@ -92,75 +74,147 @@ export class PreferencesStorageAdapter extends StorageAdapter {
   async delete(key: string): Promise<void> {
     this.cache.delete(key);
     console.log(`[PreferencesStorage] 删除：${key}`);
+    
+    try {
+      if (this.preferences) {
+        await this.preferences.delete(key);
+        await this.preferences.flush();
+      }
+    } catch (error) {
+      console.warn('[PreferencesStorage] 删除失败:', error);
+    }
   }
 
   async has(key: string): Promise<boolean> {
-    return this.cache.has(key);
+    if (this.cache.has(key)) return true;
+    
+    try {
+      if (this.preferences) {
+        const value = await this.preferences.get(key, null);
+        return value !== null;
+      }
+    } catch (error) {
+      console.warn('[PreferencesStorage] 检查失败:', error);
+    }
+    return false;
   }
 
   async clear(): Promise<void> {
     this.cache.clear();
     console.log('[PreferencesStorage] 清空所有数据');
+    
+    try {
+      if (this.preferences) {
+        await this.preferences.clear();
+        await this.preferences.flush();
+      }
+    } catch (error) {
+      console.warn('[PreferencesStorage] 清空失败:', error);
+    }
+  }
+
+  public setPreferences(prefs: any): void {
+    this.preferences = prefs;
   }
 }
 
-/**
- * 文件存储适配器
- */
 export class FileStorageAdapter extends StorageAdapter {
+  private cache: Map<string, string> = new Map();
+  private fs: any = null;
+
   async save(key: string, value: any): Promise<void> {
-    const filePath = `${this.config.path}/${key}`;
+    const filePath = `${this.config.path}/${key}.json`;
+    const stringValue = JSON.stringify(value, null, 2);
+    this.cache.set(key, stringValue);
     console.log(`[FileStorage] 保存到：${filePath}`);
     
-    // 实际项目中应使用 OHOS 文件系统 API
-    // const file = fs.openSync(filePath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY);
-    // fs.write(file, JSON.stringify(value));
-    // fs.close(file);
+    try {
+      if (this.fs) {
+        await this.fs.writeText(filePath, stringValue);
+      }
+    } catch (error) {
+      console.warn('[FileStorage] 文件写入失败，使用内存缓存:', error);
+    }
   }
 
   async load(key: string): Promise<any> {
-    const filePath = `${this.config.path}/${key}`;
+    const cached = this.cache.get(key);
+    if (cached !== undefined) {
+      try {
+        return JSON.parse(cached);
+      } catch {
+        return cached;
+      }
+    }
+    
+    const filePath = `${this.config.path}/${key}.json`;
     console.log(`[FileStorage] 从以下路径加载：${filePath}`);
     
-    // 实际项目中应使用 OHOS 文件系统 API
-    // const content = fs.readTextFileSync(filePath);
-    // return JSON.parse(content);
+    try {
+      if (this.fs) {
+        const content = await this.fs.readText(filePath);
+        this.cache.set(key, content);
+        return JSON.parse(content);
+      }
+    } catch (error) {
+      console.warn('[FileStorage] 文件读取失败:', error);
+    }
     
     return null;
   }
 
   async delete(key: string): Promise<void> {
-    const filePath = `${this.config.path}/${key}`;
+    const filePath = `${this.config.path}/${key}.json`;
+    this.cache.delete(key);
     console.log(`[FileStorage] 删除：${filePath}`);
     
-    // 实际项目中应使用 OHOS 文件系统 API
-    // fs.unlinkSync(filePath);
+    try {
+      if (this.fs) {
+        await this.fs.unlink(filePath);
+      }
+    } catch (error) {
+      console.warn('[FileStorage] 文件删除失败:', error);
+    }
   }
 
   async has(key: string): Promise<boolean> {
-    const filePath = `${this.config.path}/${key}`;
+    if (this.cache.has(key)) return true;
     
-    // 实际项目中应检查文件是否存在
-    // return fs.accessSync(filePath);
-    
+    const filePath = `${this.config.path}/${key}.json`;
+    try {
+      if (this.fs) {
+        return await this.fs.access(filePath);
+      }
+    } catch (error) {
+      console.warn('[FileStorage] 文件检查失败:', error);
+    }
     return false;
   }
 
   async clear(): Promise<void> {
+    this.cache.clear();
     console.log('[FileStorage] 清空所有文件');
     
-    // 实际项目中应删除目录下所有文件
+    try {
+      if (this.fs && this.config.path) {
+        const files = await this.fs.listDir(this.config.path);
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            await this.fs.unlink(`${this.config.path}/${file}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('[FileStorage] 清空目录失败:', error);
+    }
+  }
+
+  public setFileSystem(fs: any): void {
+    this.fs = fs;
   }
 }
 
-/**
- * 存储工厂
- */
 export class StorageFactory {
-  /**
-   * 创建存储适配器
-   * @param config 存储配置
-   */
   public static create(config: StorageConfig): StorageAdapter {
     switch (config.type) {
       case 'preferences':
@@ -168,7 +222,6 @@ export class StorageFactory {
       case 'file':
         return new FileStorageAdapter(config);
       case 'rdb':
-        // RDB 适配器实现类似
         return new PreferencesStorageAdapter(config);
       default:
         throw new Error(`不支持的存储类型：${config.type}`);
